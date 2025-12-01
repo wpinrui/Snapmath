@@ -214,14 +214,9 @@ fun SolveScreen(
     // Results bottom sheet
     if (showResultsSheet) {
         ModalBottomSheet(
-            onDismissRequest = {
-                if (isLoading || isStreaming) {
-                    showExitWarning = true
-                } else {
-                    onNavigateBack()
-                }
-            },
-            sheetState = sheetState
+            onDismissRequest = { /* Disabled - use button to dismiss */ },
+            sheetState = sheetState,
+            dragHandle = null
         ) {
             Column(
                 modifier = Modifier
