@@ -36,8 +36,8 @@ class OpenAiService(private val apiKey: String) {
     companion object {
         private const val API_URL = "https://api.openai.com/v1/chat/completions"
         private const val MODEL = "gpt-4o-mini"
-        private const val MAX_IMAGE_DIMENSION = 1024
-        private const val JPEG_QUALITY = 80
+        private const val MAX_IMAGE_DIMENSION = 2048
+        private const val JPEG_QUALITY = 85
     }
 
     /**
