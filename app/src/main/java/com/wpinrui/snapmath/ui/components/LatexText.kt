@@ -119,8 +119,7 @@ private fun groupSegmentsIntoRows(segments: List<MathSegment>): List<RenderRow> 
 /**
  * Composable that renders mixed content containing both regular text and LaTeX expressions.
  * LaTeX expressions should be wrapped in $ delimiters (inline) or $$ (display).
- * - Inline math ($...$, \(...\)) flows with text on the same line
- * - Display math ($$...$$, \[...\]) renders on its own line, centered
+ * Each line is rendered separately to prevent long content from being shrunk.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -133,102 +132,64 @@ fun MathText(
     val density = LocalDensity.current
     val textSizePx = with(density) { style.fontSize.toPx() }
 
-    // Parse text for LaTeX expressions
-    val segments = remember(text) { parseMathSegments(text) }
+    // Preprocess: convert \[...\] to $$...$$ (handles multi-line display math)
+    // Also remove standalone \[ and \] lines
+    val preprocessed = remember(text) {
+        text
+            .replace(Regex("""\\\[\s*\n"""), "$$")  // \[ followed by newline -> $$
+            .replace(Regex("""\n\s*\\\]"""), "$$")  // newline followed by \] -> $$
+            .replace("\\[", "$$")  // remaining \[ -> $$
+            .replace("\\]", "$$")  // remaining \] -> $$
+    }
 
-    // Check if it's a single pure LaTeX expression
-    if (segments.size == 1 && segments[0].isLatex) {
-        LatexText(
-            latex = segments[0].content,
-            modifier = modifier,
-            textSize = textSizePx * 1.2f,
-            textColor = textColor
-        )
-    } else {
-        // Check if we have any display math - if so, use Column layout
-        val hasDisplayMath = segments.any { it.isDisplayMath }
+    // Split by newlines - each line renders independently
+    val lines = remember(preprocessed) {
+        preprocessed.split("\n")
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it != "$$" }  // Remove empty and standalone $$ lines
+    }
 
-        if (hasDisplayMath) {
-            // Pre-group segments into rows
-            val rows = remember(segments) { groupSegmentsIntoRows(segments) }
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        lines.forEach { line ->
+            val segments = remember(line) { parseMathSegments(line) }
 
-            Column(modifier = modifier) {
-                rows.forEach { row ->
-                    when (row) {
-                        is RenderRow.DisplayMath -> {
-                            LatexText(
-                                latex = row.content,
-                                modifier = Modifier.fillMaxWidth(),
-                                textSize = textSizePx * 1.2f,
-                                textColor = textColor
-                            )
-                        }
-                        is RenderRow.InlineGroup -> {
-                            FlowRow(
-                                horizontalArrangement = Arrangement.Start,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                row.segments.forEach { segment ->
-                                    when {
-                                        segment.isLatex -> {
-                                            LatexText(
-                                                latex = segment.content,
-                                                textSize = textSizePx * 1.1f,
-                                                textColor = textColor,
-                                                minHeight = 16.dp
-                                            )
-                                        }
-                                        segment.isBold -> {
-                                            Text(
-                                                text = segment.content,
-                                                style = style.copy(fontWeight = FontWeight.Bold),
-                                                color = textColor
-                                            )
-                                        }
-                                        else -> {
-                                            Text(
-                                                text = segment.content,
-                                                style = style,
-                                                color = textColor
-                                            )
-                                        }
-                                    }
-                                }
+            // Single pure LaTeX line
+            if (segments.size == 1 && segments[0].isLatex) {
+                LatexText(
+                    latex = segments[0].content,
+                    textSize = textSizePx * 1.2f,
+                    textColor = textColor
+                )
+            } else {
+                // Mixed content line - use FlowRow
+                FlowRow(
+                    horizontalArrangement = Arrangement.Start,
+                    verticalArrangement = Arrangement.Bottom
+                ) {
+                    segments.forEach { segment ->
+                        when {
+                            segment.isLatex -> {
+                                LatexText(
+                                    latex = segment.content,
+                                    textSize = textSizePx * 1.1f,
+                                    textColor = textColor,
+                                    minHeight = 16.dp
+                                )
                             }
-                        }
-                    }
-                }
-            }
-        } else {
-            // All inline content - use FlowRow
-            FlowRow(
-                modifier = modifier,
-                horizontalArrangement = Arrangement.Start,
-                verticalArrangement = Arrangement.Center
-            ) {
-                segments.forEach { segment ->
-                    when {
-                        segment.isLatex -> {
-                            LatexText(
-                                latex = segment.content,
-                                textSize = textSizePx * 1.1f,
-                                textColor = textColor,
-                                minHeight = 16.dp
-                            )
-                        }
-                        segment.isBold -> {
-                            Text(
-                                text = segment.content,
-                                style = style.copy(fontWeight = FontWeight.Bold),
-                                color = textColor
-                            )
-                        }
-                        else -> {
-                            Text(
-                                text = segment.content,
-                                style = style,
-                                color = textColor
-                            )
+                            segment.isBold -> {
+                                Text(
+                                    text = segment.content,
+                                    style = style.copy(fontWeight = FontWeight.Bold),
+                                    color = textColor
+                                )
+                            }
+                            else -> {
+                                Text(
+                                    text = segment.content,
+                                    style = style,
+                                    color = textColor
+                                )
+                            }
                         }
                     }
                 }
@@ -276,7 +237,7 @@ private fun parseMathSegments(text: String): List<MathSegment> {
         PatternInfo(Regex("""\$\$(.*?)\$\$""", RegexOption.DOT_MATCHES_ALL), SegmentType.DISPLAY_LATEX),   // Display math $$...$$
         PatternInfo(Regex("""\\\[(.*?)\\\]""", RegexOption.DOT_MATCHES_ALL), SegmentType.DISPLAY_LATEX),   // Display math \[...\]
         PatternInfo(Regex("""\*\*(.+?)\*\*"""), SegmentType.BOLD_TEXT),  // Bold **...**
-        PatternInfo(Regex("""\$([^$]+)\$"""), SegmentType.INLINE_LATEX),  // Inline math $...$
+        PatternInfo(Regex("""\$(.+?)\$""", RegexOption.DOT_MATCHES_ALL), SegmentType.INLINE_LATEX),  // Inline math $...$ (non-greedy, multiline)
         PatternInfo(Regex("""\\\((.*?)\\\)""", RegexOption.DOT_MATCHES_ALL), SegmentType.INLINE_LATEX)   // Inline math \(...\)
     )
 

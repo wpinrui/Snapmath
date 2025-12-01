@@ -64,15 +64,23 @@ import kotlinx.coroutines.launch
 
 private const val SOLVE_PROMPT = "Look at this handwritten math problem. Solve it step-by-step.\n" +
     "Format your response as:\n" +
-    "PROBLEM: [the COMPLETE question including any instruction words like 'Simplify', 'Factorise', 'Solve', 'Evaluate', etc., followed by the mathematical expression in LaTeX]\n\n" +
+    "PROBLEM: [the COMPLETE question including instruction words]\n\n" +
     "SOLUTION:\n" +
-    "Step 1: [explanation with math in LaTeX using \$ delimiters]\n" +
-    "Step 2: [explanation with math in LaTeX using \$ delimiters]\n" +
+    "Step 1: [explanation]\n" +
+    "Step 2: [explanation]\n" +
     "...\n\n" +
-    "ANSWER: [final answer in LaTeX]\n\n" +
-    "IMPORTANT: Always include the full question stem (e.g. 'Simplify \$x^2 + 2x\$' not just '\$x^2 + 2x\$').\n" +
-    "Use LaTeX notation for all mathematical expressions, wrapped in \$ delimiters.\n" +
-    "Be clear and educational in your explanations."
+    "ANSWER: [final answer]\n\n" +
+    "FORMATTING RULES:\n" +
+    "- Write plain English explanations normally\n" +
+    "- Wrap ONLY math expressions in \$ delimiters (e.g. \$x^2 + 2x\$)\n" +
+    "- Put each major equation on its own line\n" +
+    "- Keep math expressions SHORT - break into multiple lines if needed\n" +
+    "- Example step:\n" +
+    "  Multiply both sides by 2:\n" +
+    "  \$2x = 6\$\n" +
+    "  \$x = 3\$\n" +
+    "- Include full question stem (e.g. 'Simplify \$x^2 + 2x\$')\n" +
+    "- Double-check ALL arithmetic calculations"
 
 @Composable
 fun SolveScreen(
