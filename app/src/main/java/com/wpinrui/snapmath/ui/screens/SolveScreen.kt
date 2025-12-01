@@ -506,22 +506,27 @@ private sealed class SolutionSection {
     data class Text(val content: String) : SolutionSection()
 }
 
+private enum class SectionType { PROBLEM, STEP, ANSWER, TEXT }
+
+private val STEP_PATTERN = Regex("^Step\\s*\\d+:.*", RegexOption.IGNORE_CASE)
+
 private fun parseSolution(solution: String): List<SolutionSection> {
     val sections = mutableListOf<SolutionSection>()
     val lines = solution.lines()
 
-    var currentSection: String? = null
+    var currentType: SectionType? = null
     val currentContent = StringBuilder()
     var stepNumber = 0
 
     fun flushSection() {
         val content = currentContent.toString().trim()
         if (content.isNotEmpty()) {
-            when {
-                currentSection == "problem" -> sections.add(SolutionSection.Problem(content))
-                currentSection == "step" -> sections.add(SolutionSection.Step(stepNumber, content))
-                currentSection == "answer" -> sections.add(SolutionSection.Answer(content))
-                currentSection == "text" -> sections.add(SolutionSection.Text(content))
+            when (currentType) {
+                SectionType.PROBLEM -> sections.add(SolutionSection.Problem(content))
+                SectionType.STEP -> sections.add(SolutionSection.Step(stepNumber, content))
+                SectionType.ANSWER -> sections.add(SolutionSection.Answer(content))
+                SectionType.TEXT -> sections.add(SolutionSection.Text(content))
+                null -> {}
             }
         }
         currentContent.clear()
@@ -532,27 +537,27 @@ private fun parseSolution(solution: String): List<SolutionSection> {
         when {
             trimmed.startsWith("PROBLEM:", ignoreCase = true) -> {
                 flushSection()
-                currentSection = "problem"
-                currentContent.append(trimmed.removePrefix("PROBLEM:").removePrefix("problem:").trim())
+                currentType = SectionType.PROBLEM
+                currentContent.append(trimmed.substringAfter(":").trim())
             }
             trimmed.startsWith("SOLUTION:", ignoreCase = true) -> {
                 flushSection()
-                currentSection = "text"
+                currentType = SectionType.TEXT
             }
-            trimmed.matches(Regex("^Step\\s*\\d+:.*", RegexOption.IGNORE_CASE)) -> {
+            trimmed.matches(STEP_PATTERN) -> {
                 flushSection()
-                currentSection = "step"
+                currentType = SectionType.STEP
                 stepNumber = trimmed.substringAfter("Step").substringBefore(":").trim().toIntOrNull() ?: (stepNumber + 1)
                 currentContent.append(trimmed.substringAfter(":").trim())
             }
             trimmed.startsWith("ANSWER:", ignoreCase = true) -> {
                 flushSection()
-                currentSection = "answer"
-                currentContent.append(trimmed.removePrefix("ANSWER:").removePrefix("answer:").trim())
+                currentType = SectionType.ANSWER
+                currentContent.append(trimmed.substringAfter(":").trim())
             }
             else -> {
-                if (currentSection == null && trimmed.isNotEmpty()) {
-                    currentSection = "text"
+                if (currentType == null && trimmed.isNotEmpty()) {
+                    currentType = SectionType.TEXT
                 }
                 if (currentContent.isNotEmpty()) {
                     currentContent.append("\n")

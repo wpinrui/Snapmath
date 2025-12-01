@@ -6,14 +6,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -81,39 +79,23 @@ fun LatexText(
 }
 
 /**
- * Represents a row in the rendered output - either a group of inline elements or a single display equation
+ * Normalizes LaTeX delimiters by converting \[...\] syntax to $...$ for consistent parsing.
  */
-private sealed class RenderRow {
-    data class InlineGroup(val segments: List<MathSegment>) : RenderRow()
-    data class DisplayMath(val content: String) : RenderRow()
+private fun normalizeLatexDelimiters(text: String): String {
+    return text
+        .replace(Regex("""\\\[\s*\n"""), "$$")  // \[ followed by newline -> $$
+        .replace(Regex("""\n\s*\\\]"""), "$$")  // newline followed by \] -> $$
+        .replace("\\[", "$$")  // remaining \[ -> $$
+        .replace("\\]", "$$")  // remaining \] -> $$
 }
 
 /**
- * Groups segments into render rows - inline segments are grouped together,
- * display math gets its own row.
+ * Splits text into non-empty lines for independent rendering.
  */
-private fun groupSegmentsIntoRows(segments: List<MathSegment>): List<RenderRow> {
-    val rows = mutableListOf<RenderRow>()
-    val currentInlineGroup = mutableListOf<MathSegment>()
-
-    fun flushInlineGroup() {
-        if (currentInlineGroup.isNotEmpty()) {
-            rows.add(RenderRow.InlineGroup(currentInlineGroup.toList()))
-            currentInlineGroup.clear()
-        }
-    }
-
-    for (segment in segments) {
-        if (segment.isDisplayMath) {
-            flushInlineGroup()
-            rows.add(RenderRow.DisplayMath(segment.content))
-        } else {
-            currentInlineGroup.add(segment)
-        }
-    }
-    flushInlineGroup()
-
-    return rows
+private fun splitIntoRenderableLines(text: String): List<String> {
+    return text.split("\n")
+        .map { it.trim() }
+        .filter { it.isNotBlank() && it != "$$" }
 }
 
 /**
@@ -132,21 +114,8 @@ fun MathText(
     val density = LocalDensity.current
     val textSizePx = with(density) { style.fontSize.toPx() }
 
-    // Preprocess: convert \[...\] to $$...$$ (handles multi-line display math)
-    // Also remove standalone \[ and \] lines
-    val preprocessed = remember(text) {
-        text
-            .replace(Regex("""\\\[\s*\n"""), "$$")  // \[ followed by newline -> $$
-            .replace(Regex("""\n\s*\\\]"""), "$$")  // newline followed by \] -> $$
-            .replace("\\[", "$$")  // remaining \[ -> $$
-            .replace("\\]", "$$")  // remaining \] -> $$
-    }
-
-    // Split by newlines - each line renders independently
-    val lines = remember(preprocessed) {
-        preprocessed.split("\n")
-            .map { it.trim() }
-            .filter { it.isNotBlank() && it != "$$" }  // Remove empty and standalone $$ lines
+    val lines = remember(text) {
+        splitIntoRenderableLines(normalizeLatexDelimiters(text))
     }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
