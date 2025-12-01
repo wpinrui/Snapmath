@@ -9,16 +9,20 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -60,12 +64,13 @@ import kotlinx.coroutines.launch
 
 private const val SOLVE_PROMPT = "Look at this handwritten math problem. Solve it step-by-step.\n" +
     "Format your response as:\n" +
-    "PROBLEM: [the recognized problem in LaTeX, e.g. \$x^2 + 2x = 0\$]\n\n" +
+    "PROBLEM: [the COMPLETE question including any instruction words like 'Simplify', 'Factorise', 'Solve', 'Evaluate', etc., followed by the mathematical expression in LaTeX]\n\n" +
     "SOLUTION:\n" +
     "Step 1: [explanation with math in LaTeX using \$ delimiters]\n" +
     "Step 2: [explanation with math in LaTeX using \$ delimiters]\n" +
     "...\n\n" +
     "ANSWER: [final answer in LaTeX]\n\n" +
+    "IMPORTANT: Always include the full question stem (e.g. 'Simplify \$x^2 + 2x\$' not just '\$x^2 + 2x\$').\n" +
     "Use LaTeX notation for all mathematical expressions, wrapped in \$ delimiters.\n" +
     "Be clear and educational in your explanations."
 
@@ -191,6 +196,7 @@ fun SolveScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .windowInsetsPadding(WindowInsets.statusBars)
                             .padding(16.dp)
                     ) {
                         when {
@@ -251,9 +257,7 @@ fun SolveScreen(
                                         errorMessage = null
                                     },
                                     enabled = !isStreaming,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 16.dp),
+                                    modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = MaterialTheme.colorScheme.primary
@@ -291,6 +295,7 @@ fun SolveScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surface)
                             .padding(16.dp)
                     )
                 }
@@ -346,7 +351,7 @@ private fun FormattedSolution(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "Problem",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.Bold
                         )
@@ -369,7 +374,7 @@ private fun FormattedSolution(
                 if (problem != null) {
                     MathText(
                         text = problem.content,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodyMedium,
                         textColor = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
@@ -401,13 +406,12 @@ private fun FormattedSolution(
                 state = pagerState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
+                    .weight(1f),
+                pageSpacing = 8.dp
             ) { pageIndex ->
                 val page = stepPages[pageIndex]
                 Card(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 4.dp),
+                    modifier = Modifier.fillMaxSize(),
                     colors = when (page) {
                         is SolutionSection.Answer -> CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer
@@ -429,10 +433,10 @@ private fun FormattedSolution(
                                     color = MaterialTheme.colorScheme.secondary,
                                     fontWeight = FontWeight.Bold
                                 )
-                                Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
                                 MathText(
                                     text = page.content,
-                                    style = MaterialTheme.typography.bodyLarge,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     textColor = MaterialTheme.colorScheme.onSurface
                                 )
                             }
@@ -443,17 +447,17 @@ private fun FormattedSolution(
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                                     fontWeight = FontWeight.Bold
                                 )
-                                Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
                                 MathText(
                                     text = page.content,
-                                    style = MaterialTheme.typography.headlineSmall,
+                                    style = MaterialTheme.typography.bodyLarge,
                                     textColor = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                             }
                             else -> {
                                 MathText(
                                     text = (page as? SolutionSection.Text)?.content ?: "",
-                                    style = MaterialTheme.typography.bodyLarge,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     textColor = MaterialTheme.colorScheme.onSurface
                                 )
                             }
