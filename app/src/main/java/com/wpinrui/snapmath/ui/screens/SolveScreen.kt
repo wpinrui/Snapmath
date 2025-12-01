@@ -51,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.wpinrui.snapmath.data.history.HistoryRepository
 import com.wpinrui.snapmath.data.llm.OpenAiService
 import com.wpinrui.snapmath.data.preferences.ApiKeyManager
 import com.wpinrui.snapmath.ui.components.CameraCapture
@@ -86,8 +87,10 @@ fun SolveScreen(
     var showExitWarning by remember { mutableStateOf(false) }
 
     val apiKeyManager = remember { ApiKeyManager(context) }
+    val historyRepository = remember { HistoryRepository(context) }
     val scrollState = rememberScrollState()
     var userHasScrolled by remember { mutableStateOf(false) }
+    var historySaved by remember { mutableStateOf(false) }
 
     // Track if user has manually scrolled up
     LaunchedEffect(scrollState.isScrollInProgress) {
@@ -164,6 +167,7 @@ fun SolveScreen(
             showCamera = false
             errorMessage = null
             solutionResult = ""
+            historySaved = false
 
             val service = OpenAiService(apiKey)
             service.analyzeImageStreaming(bitmap, SOLVE_PROMPT)
@@ -178,6 +182,13 @@ fun SolveScreen(
                 }
 
             isStreaming = false
+
+            // Save to history if we have a result
+            if (solutionResult.isNotEmpty() && errorMessage == null && !historySaved) {
+                val problem = extractProblem(solutionResult)
+                historyRepository.saveSolveEntry(problem, solutionResult)
+                historySaved = true
+            }
         }
     }
 
@@ -540,4 +551,19 @@ private fun parseSolution(solution: String): List<SolutionSection> {
     flushSection()
 
     return sections.ifEmpty { listOf(SolutionSection.Text(solution)) }
+}
+
+/**
+ * Extracts the problem statement from a solution response.
+ */
+private fun extractProblem(solution: String): String {
+    val lines = solution.lines()
+    for (line in lines) {
+        val trimmed = line.trim()
+        if (trimmed.startsWith("PROBLEM:", ignoreCase = true)) {
+            return trimmed.removePrefix("PROBLEM:").removePrefix("problem:").trim()
+        }
+    }
+    // Fallback: return first non-empty line or truncated solution
+    return lines.firstOrNull { it.isNotBlank() }?.take(100) ?: solution.take(100)
 }

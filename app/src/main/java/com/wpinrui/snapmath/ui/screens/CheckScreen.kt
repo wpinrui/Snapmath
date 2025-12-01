@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.wpinrui.snapmath.data.history.HistoryRepository
 import com.wpinrui.snapmath.data.llm.OpenAiService
 import com.wpinrui.snapmath.data.preferences.ApiKeyManager
 import com.wpinrui.snapmath.ui.components.CameraCapture
@@ -110,6 +111,7 @@ fun CheckScreen(
     var showExitWarning by remember { mutableStateOf(false) }
 
     val apiKeyManager = remember { ApiKeyManager(context) }
+    val historyRepository = remember { HistoryRepository(context) }
     val json = remember { Json { ignoreUnknownKeys = true } }
 
     // Prevent back navigation while loading
@@ -177,7 +179,15 @@ fun CheckScreen(
                         } else {
                             response
                         }
-                        checkResult = json.decodeFromString<CheckResult>(jsonString)
+                        val parsedResult = json.decodeFromString<CheckResult>(jsonString)
+                        checkResult = parsedResult
+
+                        // Save to history
+                        historyRepository.saveCheckEntry(
+                            problem = parsedResult.problem,
+                            result = parsedResult.summary,
+                            isCorrect = parsedResult.final_answer_correct
+                        )
                     } catch (e: Exception) {
                         errorMessage = "Failed to parse response: ${e.message}\n\nRaw response:\n$response"
                     }
