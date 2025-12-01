@@ -87,10 +87,28 @@ fun SolveScreen(
 
     val apiKeyManager = remember { ApiKeyManager(context) }
     val scrollState = rememberScrollState()
+    var userHasScrolled by remember { mutableStateOf(false) }
 
-    // Auto-scroll to bottom as content streams in
-    LaunchedEffect(solutionResult) {
+    // Track if user has manually scrolled up
+    LaunchedEffect(scrollState.isScrollInProgress) {
+        if (scrollState.isScrollInProgress && isStreaming) {
+            // User is scrolling while streaming - they want to read earlier content
+            if (scrollState.value < scrollState.maxValue - 100) {
+                userHasScrolled = true
+            }
+        }
+    }
+
+    // Reset scroll tracking when starting new stream
+    LaunchedEffect(isStreaming) {
         if (isStreaming) {
+            userHasScrolled = false
+        }
+    }
+
+    // Auto-scroll to bottom only if user hasn't scrolled up
+    LaunchedEffect(solutionResult) {
+        if (isStreaming && !userHasScrolled) {
             scrollState.animateScrollTo(scrollState.maxValue)
         }
     }

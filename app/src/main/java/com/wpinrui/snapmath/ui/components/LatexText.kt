@@ -1,18 +1,17 @@
 package com.wpinrui.snapmath.ui.components
 
 import android.util.Log
-import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -81,7 +80,9 @@ fun LatexText(
 /**
  * Composable that renders mixed content containing both regular text and LaTeX expressions.
  * LaTeX expressions should be wrapped in $ delimiters (inline) or $$ (display).
+ * Renders inline - text and math flow together on the same line when possible.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MathText(
     text: String,
@@ -95,12 +96,8 @@ fun MathText(
     // Parse text for LaTeX expressions
     val segments = remember(text) { parseMathSegments(text) }
 
-    // For now, if there's any LaTeX, try to render the whole thing as LaTeX
-    // This is simpler and works well for math solutions
-    val hasLatex = segments.any { it.isLatex }
-
-    if (hasLatex && segments.size == 1 && segments[0].isLatex) {
-        // Pure LaTeX expression
+    // Check if it's a single pure LaTeX expression
+    if (segments.size == 1 && segments[0].isLatex) {
         LatexText(
             latex = segments[0].content,
             modifier = modifier,
@@ -108,16 +105,19 @@ fun MathText(
             textColor = textColor
         )
     } else {
-        // Mixed content - render as text with LaTeX segments inline
-        // For simplicity, we'll render LaTeX blocks separately
-        androidx.compose.foundation.layout.Column(modifier = modifier) {
+        // Mixed content - render inline using FlowRow
+        FlowRow(
+            modifier = modifier,
+            horizontalArrangement = Arrangement.Start,
+            verticalArrangement = Arrangement.Center
+        ) {
             segments.forEach { segment ->
                 if (segment.isLatex) {
                     LatexText(
                         latex = segment.content,
-                        textSize = textSizePx * 1.2f,
+                        textSize = textSizePx * 1.1f,
                         textColor = textColor,
-                        modifier = Modifier.fillMaxWidth()
+                        minHeight = 16.dp
                     )
                 } else {
                     Text(
@@ -140,6 +140,7 @@ private data class MathSegment(
  * Parses text into segments of regular text and LaTeX expressions.
  * Supports $...$ for inline math and $$...$$ for display math.
  * Also supports \[...\] and \(...\) delimiters.
+ * Preserves spacing for inline rendering.
  */
 private fun parseMathSegments(text: String): List<MathSegment> {
     val segments = mutableListOf<MathSegment>()
@@ -155,22 +156,22 @@ private fun parseMathSegments(text: String): List<MathSegment> {
 
     while (remaining.isNotEmpty()) {
         var earliestMatch: MatchResult? = null
-        var earliestPattern: Regex? = null
 
         for (pattern in patterns) {
             val match = pattern.find(remaining)
             if (match != null && (earliestMatch == null || match.range.first < earliestMatch.range.first)) {
                 earliestMatch = match
-                earliestPattern = pattern
             }
         }
 
         if (earliestMatch != null) {
-            // Add text before the match
+            // Add text before the match (preserve some spacing)
             if (earliestMatch.range.first > 0) {
-                val textBefore = remaining.substring(0, earliestMatch.range.first).trim()
-                if (textBefore.isNotEmpty()) {
-                    segments.add(MathSegment(textBefore, false))
+                val textBefore = remaining.substring(0, earliestMatch.range.first)
+                // Collapse multiple whitespaces but preserve word boundaries
+                val cleaned = textBefore.replace(Regex("\\s+"), " ")
+                if (cleaned.isNotBlank()) {
+                    segments.add(MathSegment(cleaned, false))
                 }
             }
 
@@ -183,9 +184,9 @@ private fun parseMathSegments(text: String): List<MathSegment> {
             remaining = remaining.substring(earliestMatch.range.last + 1)
         } else {
             // No more matches, add remaining text
-            val trimmed = remaining.trim()
-            if (trimmed.isNotEmpty()) {
-                segments.add(MathSegment(trimmed, false))
+            val cleaned = remaining.replace(Regex("\\s+"), " ").trim()
+            if (cleaned.isNotEmpty()) {
+                segments.add(MathSegment(cleaned, false))
             }
             break
         }
