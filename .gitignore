@@ -76,3 +76,6 @@ test-output/
 *.keystore
 google-services.json
 secrets.properties
+
+# Claude
+.claude/
