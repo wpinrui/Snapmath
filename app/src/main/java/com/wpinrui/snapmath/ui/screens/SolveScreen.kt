@@ -33,14 +33,12 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,7 +69,6 @@ private const val SOLVE_PROMPT = "Look at this handwritten math problem. Solve i
     "Use LaTeX notation for all mathematical expressions, wrapped in \$ delimiters.\n" +
     "Be clear and educational in your explanations."
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SolveScreen(
     onNavigateBack: () -> Unit
@@ -164,11 +161,10 @@ fun SolveScreen(
         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
     }
 
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val showResultsSheet = !showCamera && (solutionResult.isNotEmpty() || errorMessage != null || (isLoading && solutionResult.isEmpty()))
+    val showResults = !showCamera && (solutionResult.isNotEmpty() || errorMessage != null || (isLoading && solutionResult.isEmpty()))
 
-    // Camera view is always the base layer
     Box(modifier = Modifier.fillMaxSize()) {
+        // Camera view layer
         when {
             !hasCameraPermission -> {
                 Column(
@@ -186,7 +182,98 @@ fun SolveScreen(
                 }
             }
 
+            showResults -> {
+                // Results overlay - full screen, no swipe gestures
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.surface
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp)
+                    ) {
+                        when {
+                            isLoading && solutionResult.isEmpty() -> {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        CircularProgressIndicator()
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text("Analyzing problem...")
+                                    }
+                                }
+                            }
+
+                            else -> {
+                                if (errorMessage != null) {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.errorContainer
+                                        )
+                                    ) {
+                                        Column(modifier = Modifier.padding(16.dp)) {
+                                            Text(
+                                                text = "Error",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = errorMessage!!,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+
+                                if (solutionResult.isNotEmpty()) {
+                                    FormattedSolution(
+                                        solution = solutionResult,
+                                        isStreaming = isStreaming,
+                                        onCopy = { copyToClipboard(solutionResult) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Button(
+                                    onClick = {
+                                        showCamera = true
+                                        solutionResult = ""
+                                        errorMessage = null
+                                    },
+                                    enabled = !isStreaming,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 16.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary
+                                    )
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null
+                                    )
+                                    Spacer(modifier = Modifier.padding(4.dp))
+                                    Text("Solve Another Problem")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             else -> {
+                // Camera view
                 Column {
                     Box(modifier = Modifier.weight(1f)) {
                         CameraCapture(
@@ -206,97 +293,6 @@ fun SolveScreen(
                             .fillMaxWidth()
                             .padding(16.dp)
                     )
-                }
-            }
-        }
-    }
-
-    // Results bottom sheet
-    if (showResultsSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { /* Disabled - use button to dismiss */ },
-            sheetState = sheetState,
-            dragHandle = null
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp)
-            ) {
-                when {
-                    isLoading && solutionResult.isEmpty() -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator()
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text("Analyzing problem...")
-                            }
-                        }
-                    }
-
-                    else -> {
-                        if (errorMessage != null) {
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.errorContainer
-                                )
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Text(
-                                        text = "Error",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = errorMessage!!,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-
-                        if (solutionResult.isNotEmpty()) {
-                            FormattedSolution(
-                                solution = solutionResult,
-                                isStreaming = isStreaming,
-                                onCopy = { copyToClipboard(solutionResult) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Button(
-                            onClick = {
-                                showCamera = true
-                                solutionResult = ""
-                                errorMessage = null
-                            },
-                            enabled = !isStreaming,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 16.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = null
-                            )
-                            Spacer(modifier = Modifier.padding(4.dp))
-                            Text("Solve Another Problem")
-                        }
-                    }
                 }
             }
         }
