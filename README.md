@@ -1,4 +1,4 @@
-# SnapMath
+# Snapmath
 
 A camera-based math assistant that helps you solve, verify, and convert handwritten mathematical problems.
 
