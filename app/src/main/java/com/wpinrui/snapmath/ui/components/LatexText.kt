@@ -3,8 +3,10 @@ package com.wpinrui.snapmath.ui.components
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
@@ -78,9 +80,46 @@ fun LatexText(
 }
 
 /**
+ * Represents a row in the rendered output - either a group of inline elements or a single display equation
+ */
+private sealed class RenderRow {
+    data class InlineGroup(val segments: List<MathSegment>) : RenderRow()
+    data class DisplayMath(val content: String) : RenderRow()
+}
+
+/**
+ * Groups segments into render rows - inline segments are grouped together,
+ * display math gets its own row.
+ */
+private fun groupSegmentsIntoRows(segments: List<MathSegment>): List<RenderRow> {
+    val rows = mutableListOf<RenderRow>()
+    val currentInlineGroup = mutableListOf<MathSegment>()
+
+    fun flushInlineGroup() {
+        if (currentInlineGroup.isNotEmpty()) {
+            rows.add(RenderRow.InlineGroup(currentInlineGroup.toList()))
+            currentInlineGroup.clear()
+        }
+    }
+
+    for (segment in segments) {
+        if (segment.isDisplayMath) {
+            flushInlineGroup()
+            rows.add(RenderRow.DisplayMath(segment.content))
+        } else {
+            currentInlineGroup.add(segment)
+        }
+    }
+    flushInlineGroup()
+
+    return rows
+}
+
+/**
  * Composable that renders mixed content containing both regular text and LaTeX expressions.
  * LaTeX expressions should be wrapped in $ delimiters (inline) or $$ (display).
- * Renders inline - text and math flow together on the same line when possible.
+ * - Inline math ($...$, \(...\)) flows with text on the same line
+ * - Display math ($$...$$, \[...\]) renders on its own line, centered
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -105,35 +144,95 @@ fun MathText(
             textColor = textColor
         )
     } else {
-        // Mixed content - render inline using FlowRow
-        FlowRow(
-            modifier = modifier,
-            horizontalArrangement = Arrangement.Start,
-            verticalArrangement = Arrangement.Center
-        ) {
-            segments.forEach { segment ->
-                if (segment.isLatex) {
-                    LatexText(
-                        latex = segment.content,
-                        textSize = textSizePx * 1.1f,
-                        textColor = textColor,
-                        minHeight = 16.dp
-                    )
-                } else {
-                    Text(
-                        text = segment.content,
-                        style = style,
-                        color = textColor
-                    )
+        // Check if we have any display math - if so, use Column layout
+        val hasDisplayMath = segments.any { it.isDisplayMath }
+
+        if (hasDisplayMath) {
+            // Pre-group segments into rows
+            val rows = remember(segments) { groupSegmentsIntoRows(segments) }
+
+            Column(modifier = modifier) {
+                rows.forEach { row ->
+                    when (row) {
+                        is RenderRow.DisplayMath -> {
+                            LatexText(
+                                latex = row.content,
+                                modifier = Modifier.fillMaxWidth(),
+                                textSize = textSizePx * 1.2f,
+                                textColor = textColor
+                            )
+                        }
+                        is RenderRow.InlineGroup -> {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.Start,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                row.segments.forEach { segment ->
+                                    if (segment.isLatex) {
+                                        LatexText(
+                                            latex = segment.content,
+                                            textSize = textSizePx * 1.1f,
+                                            textColor = textColor,
+                                            minHeight = 16.dp
+                                        )
+                                    } else {
+                                        Text(
+                                            text = segment.content,
+                                            style = style,
+                                            color = textColor
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // All inline content - use FlowRow
+            FlowRow(
+                modifier = modifier,
+                horizontalArrangement = Arrangement.Start,
+                verticalArrangement = Arrangement.Center
+            ) {
+                segments.forEach { segment ->
+                    if (segment.isLatex) {
+                        LatexText(
+                            latex = segment.content,
+                            textSize = textSizePx * 1.1f,
+                            textColor = textColor,
+                            minHeight = 16.dp
+                        )
+                    } else {
+                        Text(
+                            text = segment.content,
+                            style = style,
+                            color = textColor
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+private enum class SegmentType {
+    TEXT,
+    INLINE_LATEX,
+    DISPLAY_LATEX
+}
+
 private data class MathSegment(
     val content: String,
-    val isLatex: Boolean
+    val type: SegmentType
+) {
+    val isLatex: Boolean get() = type != SegmentType.TEXT
+    val isDisplayMath: Boolean get() = type == SegmentType.DISPLAY_LATEX
+}
+
+private data class PatternInfo(
+    val pattern: Regex,
+    val isDisplay: Boolean
 )
 
 /**
@@ -146,39 +245,42 @@ private fun parseMathSegments(text: String): List<MathSegment> {
     val segments = mutableListOf<MathSegment>()
     var remaining = text
 
-    // Pattern to match various LaTeX delimiters
+    // Pattern to match various LaTeX delimiters (display patterns first to match $$ before $)
     val patterns = listOf(
-        Regex("""\$\$(.*?)\$\$""", RegexOption.DOT_MATCHES_ALL),  // Display math $$...$$
-        Regex("""\\\[(.*?)\\\]""", RegexOption.DOT_MATCHES_ALL),  // Display math \[...\]
-        Regex("""\$([^$]+)\$"""),  // Inline math $...$
-        Regex("""\\\((.*?)\\\)""", RegexOption.DOT_MATCHES_ALL)   // Inline math \(...\)
+        PatternInfo(Regex("""\$\$(.*?)\$\$""", RegexOption.DOT_MATCHES_ALL), isDisplay = true),   // Display math $$...$$
+        PatternInfo(Regex("""\\\[(.*?)\\\]""", RegexOption.DOT_MATCHES_ALL), isDisplay = true),   // Display math \[...\]
+        PatternInfo(Regex("""\$([^$]+)\$"""), isDisplay = false),  // Inline math $...$
+        PatternInfo(Regex("""\\\((.*?)\\\)""", RegexOption.DOT_MATCHES_ALL), isDisplay = false)   // Inline math \(...\)
     )
 
     while (remaining.isNotEmpty()) {
         var earliestMatch: MatchResult? = null
+        var matchedPatternInfo: PatternInfo? = null
 
-        for (pattern in patterns) {
-            val match = pattern.find(remaining)
+        for (patternInfo in patterns) {
+            val match = patternInfo.pattern.find(remaining)
             if (match != null && (earliestMatch == null || match.range.first < earliestMatch.range.first)) {
                 earliestMatch = match
+                matchedPatternInfo = patternInfo
             }
         }
 
-        if (earliestMatch != null) {
+        if (earliestMatch != null && matchedPatternInfo != null) {
             // Add text before the match (preserve some spacing)
             if (earliestMatch.range.first > 0) {
                 val textBefore = remaining.substring(0, earliestMatch.range.first)
                 // Collapse multiple whitespaces but preserve word boundaries
                 val cleaned = textBefore.replace(Regex("\\s+"), " ")
                 if (cleaned.isNotBlank()) {
-                    segments.add(MathSegment(cleaned, false))
+                    segments.add(MathSegment(cleaned, SegmentType.TEXT))
                 }
             }
 
-            // Add the LaTeX content
+            // Add the LaTeX content with appropriate type
             val latexContent = earliestMatch.groupValues[1].trim()
             if (latexContent.isNotEmpty()) {
-                segments.add(MathSegment(latexContent, true))
+                val segmentType = if (matchedPatternInfo.isDisplay) SegmentType.DISPLAY_LATEX else SegmentType.INLINE_LATEX
+                segments.add(MathSegment(latexContent, segmentType))
             }
 
             remaining = remaining.substring(earliestMatch.range.last + 1)
@@ -186,11 +288,11 @@ private fun parseMathSegments(text: String): List<MathSegment> {
             // No more matches, add remaining text
             val cleaned = remaining.replace(Regex("\\s+"), " ").trim()
             if (cleaned.isNotEmpty()) {
-                segments.add(MathSegment(cleaned, false))
+                segments.add(MathSegment(cleaned, SegmentType.TEXT))
             }
             break
         }
     }
 
-    return segments.ifEmpty { listOf(MathSegment(text, false)) }
+    return segments.ifEmpty { listOf(MathSegment(text, SegmentType.TEXT)) }
 }
