@@ -19,17 +19,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,11 +37,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -165,98 +164,87 @@ fun SolveScreen(
         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
     }
 
-    fun handleBackNavigation() {
-        if (isLoading || isStreaming) {
-            showExitWarning = true
-        } else {
-            onNavigateBack()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val showResultsSheet = !showCamera && (solutionResult.isNotEmpty() || errorMessage != null || (isLoading && solutionResult.isEmpty()))
+
+    // Camera view is always the base layer
+    Box(modifier = Modifier.fillMaxSize()) {
+        when {
+            !hasCameraPermission -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text("Camera permission is required")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
+                        Text("Grant Permission")
+                    }
+                }
+            }
+
+            else -> {
+                Column {
+                    Box(modifier = Modifier.weight(1f)) {
+                        CameraCapture(
+                            onImageCaptured = { bitmap ->
+                                processImage(bitmap)
+                            },
+                            onError = { error ->
+                                errorMessage = error.message
+                            }
+                        )
+                    }
+                    Text(
+                        text = "Point at a math problem",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    )
+                }
+            }
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Solve Problem") },
-                navigationIcon = {
-                    IconButton(
-                        onClick = { handleBackNavigation() },
-                        enabled = !(isLoading || isStreaming) || showExitWarning
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = if (isLoading || isStreaming) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                   else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
+    // Results bottom sheet
+    if (showResultsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = {
+                if (isLoading || isStreaming) {
+                    showExitWarning = true
+                } else {
+                    onNavigateBack()
                 }
-            )
-        }
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
+            },
+            sheetState = sheetState
         ) {
-            when {
-                !hasCameraPermission -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text("Camera permission is required")
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
-                            Text("Grant Permission")
-                        }
-                    }
-                }
-
-                showCamera -> {
-                    Column {
-                        Box(modifier = Modifier.weight(1f)) {
-                            CameraCapture(
-                                onImageCaptured = { bitmap ->
-                                    processImage(bitmap)
-                                },
-                                onError = { error ->
-                                    errorMessage = error.message
-                                }
-                            )
-                        }
-                        Text(
-                            text = "Point at a math problem",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+            ) {
+                when {
+                    isLoading && solutionResult.isEmpty() -> {
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp)
-                        )
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator()
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text("Analyzing problem...")
+                            }
+                        }
                     }
-                }
 
-                isLoading && solutionResult.isEmpty() -> {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        CircularProgressIndicator()
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Analyzing problem...")
-                    }
-                }
-
-                else -> {
-                    // Results view
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp)
-                    ) {
+                    else -> {
                         if (errorMessage != null) {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -281,7 +269,6 @@ fun SolveScreen(
                         }
 
                         if (solutionResult.isNotEmpty()) {
-                            // Parse and display formatted solution with step navigation
                             FormattedSolution(
                                 solution = solutionResult,
                                 isStreaming = isStreaming,
@@ -292,22 +279,27 @@ fun SolveScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        if (!isStreaming) {
-                            OutlinedButton(
-                                onClick = {
-                                    showCamera = true
-                                    solutionResult = ""
-                                    errorMessage = null
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = null
-                                )
-                                Spacer(modifier = Modifier.padding(4.dp))
-                                Text("Solve Another Problem")
-                            }
+                        Button(
+                            onClick = {
+                                showCamera = true
+                                solutionResult = ""
+                                errorMessage = null
+                            },
+                            enabled = !isStreaming,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 16.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null
+                            )
+                            Spacer(modifier = Modifier.padding(4.dp))
+                            Text("Solve Another Problem")
                         }
                     }
                 }
@@ -323,33 +315,38 @@ private fun FormattedSolution(
     onCopy: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val scope = rememberCoroutineScope()
     val sections = remember(solution) { parseSolution(solution) }
 
-    // Create pages: Problem (if exists), each Step, Answer (if exists)
-    val pages = remember(sections) {
+    // Extract problem separately - it stays at the top
+    val problem = sections.filterIsInstance<SolutionSection.Problem>().firstOrNull()
+
+    // Steps and answer go in the pager
+    val stepPages = remember(sections) {
         buildList {
-            sections.filterIsInstance<SolutionSection.Problem>().firstOrNull()?.let { add(it) }
             addAll(sections.filterIsInstance<SolutionSection.Step>())
             sections.filterIsInstance<SolutionSection.Answer>().firstOrNull()?.let { add(it) }
         }
     }
 
-    val pagerState = rememberPagerState(pageCount = { pages.size.coerceAtLeast(1) })
-
-    // Auto-advance to new pages when streaming
-    LaunchedEffect(pages.size) {
-        if (isStreaming && pages.isNotEmpty()) {
-            pagerState.animateScrollToPage(pages.size - 1)
-        }
-    }
+    // Pager state - NO auto-advance, stays on step 1
+    val pagerState = rememberPagerState(pageCount = { stepPages.size.coerceAtLeast(1) })
 
     Column(modifier = modifier.fillMaxSize()) {
-        // Header with title, progress, and copy button
+        // Problem card at the top (fixed, taller)
         Card(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -357,8 +354,9 @@ private fun FormattedSolution(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "Solution",
+                            text = "Problem",
                             style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.Bold
                         )
                         if (isStreaming) {
@@ -369,37 +367,52 @@ private fun FormattedSolution(
                             )
                         }
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (pages.size > 1) {
-                            Text(
-                                text = "${pagerState.currentPage + 1} / ${pages.size}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.padding(4.dp))
-                        }
-                        IconButton(onClick = onCopy) {
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "Copy"
-                            )
-                        }
+                    IconButton(onClick = onCopy) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy"
+                        )
                     }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                if (problem != null) {
+                    MathText(
+                        text = problem.content,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        text = "Loading problem...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // Pager content
-        if (pages.isNotEmpty()) {
+        // Step indicator
+        if (stepPages.isNotEmpty()) {
+            Text(
+                text = "${pagerState.currentPage + 1} / ${stepPages.size}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        // Steps pager at the bottom (swipeable)
+        if (stepPages.isNotEmpty()) {
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
             ) { pageIndex ->
-                val page = pages[pageIndex]
+                val page = stepPages[pageIndex]
                 Card(
                     modifier = Modifier
                         .fillMaxSize()
@@ -407,9 +420,6 @@ private fun FormattedSolution(
                     colors = when (page) {
                         is SolutionSection.Answer -> CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer
-                        )
-                        is SolutionSection.Problem -> CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
                         )
                         else -> CardDefaults.cardColors()
                     }
@@ -421,20 +431,6 @@ private fun FormattedSolution(
                             .verticalScroll(rememberScrollState())
                     ) {
                         when (page) {
-                            is SolutionSection.Problem -> {
-                                Text(
-                                    text = "Problem",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                MathText(
-                                    text = page.content,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    textColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
                             is SolutionSection.Step -> {
                                 Text(
                                     text = "Step ${page.number}",
@@ -463,9 +459,9 @@ private fun FormattedSolution(
                                     textColor = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                             }
-                            is SolutionSection.Text -> {
+                            else -> {
                                 MathText(
-                                    text = page.content,
+                                    text = (page as? SolutionSection.Text)?.content ?: "",
                                     style = MaterialTheme.typography.bodyLarge,
                                     textColor = MaterialTheme.colorScheme.onSurface
                                 )
@@ -474,50 +470,8 @@ private fun FormattedSolution(
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Navigation buttons
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            pagerState.animateScrollToPage(pagerState.currentPage - 1)
-                        }
-                    },
-                    enabled = pagerState.currentPage > 0
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = null
-                    )
-                    Spacer(modifier = Modifier.padding(4.dp))
-                    Text("Previous")
-                }
-
-                Button(
-                    onClick = {
-                        scope.launch {
-                            pagerState.animateScrollToPage(pagerState.currentPage + 1)
-                        }
-                    },
-                    enabled = pagerState.currentPage < pages.size - 1
-                ) {
-                    Text("Next")
-                    Spacer(modifier = Modifier.padding(4.dp))
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = null
-                    )
-                }
-            }
         } else {
-            // Fallback for empty pages (streaming just started)
+            // Waiting for steps to load
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -527,7 +481,15 @@ private fun FormattedSolution(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator()
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Loading solution steps...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
