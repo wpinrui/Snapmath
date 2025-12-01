@@ -7,11 +7,11 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-// Load local.properties
-val localProperties = Properties()
-val localPropertiesFile = rootProject.file("local.properties")
-if (localPropertiesFile.exists()) {
-    localProperties.load(localPropertiesFile.inputStream())
+// Load secrets.properties (not overwritten by Android Studio unlike local.properties)
+val secretsProperties = Properties()
+val secretsPropertiesFile = rootProject.file("secrets.properties")
+if (secretsPropertiesFile.exists()) {
+    secretsProperties.load(secretsPropertiesFile.inputStream())
 }
 
 android {
@@ -32,7 +32,7 @@ android {
         buildConfigField(
             "String",
             "OPENAI_API_KEY",
-            "\"${localProperties.getProperty("OPENAI_API_KEY") ?: ""}\""
+            "\"${secretsProperties.getProperty("OPENAI_API_KEY") ?: ""}\""
         )
     }
 

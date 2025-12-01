@@ -2,7 +2,6 @@ package com.wpinrui.snapmath.ui.screens
 
 import android.Manifest
 import android.graphics.Bitmap
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -57,8 +56,6 @@ import com.wpinrui.snapmath.ui.components.CameraCapture
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-
-private const val TAG = "Snapmath.Check"
 
 private const val CHECK_PROMPT = """Look at this handwritten math problem and the student's solution attempt.
 Analyze each step of their work and identify any errors.
@@ -117,7 +114,6 @@ fun CheckScreen(
 
     // Prevent back navigation while loading
     BackHandler(enabled = isLoading) {
-        Log.d(TAG, "[UI] Back pressed while loading - showing warning")
         showExitWarning = true
     }
 
@@ -125,11 +121,9 @@ fun CheckScreen(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         hasCameraPermission = isGranted
-        Log.d(TAG, "[UI] Camera permission granted: $isGranted")
     }
 
     LaunchedEffect(Unit) {
-        Log.d(TAG, "[UI] CheckScreen mounted")
         permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
@@ -141,7 +135,6 @@ fun CheckScreen(
             text = { Text("The image is still being processed. Are you sure you want to leave?") },
             confirmButton = {
                 TextButton(onClick = {
-                    Log.d(TAG, "[UI] User confirmed exit during loading")
                     showExitWarning = false
                     onNavigateBack()
                 }) {
@@ -157,10 +150,8 @@ fun CheckScreen(
     }
 
     fun processImage(bitmap: Bitmap) {
-        Log.d(TAG, "[PROCESS] Starting image processing")
         val apiKey = apiKeyManager.getApiKey()
         if (apiKey.isBlank()) {
-            Log.e(TAG, "[PROCESS] No API key configured")
             showCamera = false
             errorMessage = "No API key configured. Please add your OpenAI API key in Settings."
             return
@@ -171,7 +162,6 @@ fun CheckScreen(
             showCamera = false
             errorMessage = null
             checkResult = null
-            Log.d(TAG, "[PROCESS] Calling OpenAI service...")
 
             val service = OpenAiService(apiKey)
             val result = service.analyzeImage(bitmap, CHECK_PROMPT)
@@ -179,9 +169,7 @@ fun CheckScreen(
             result.fold(
                 onSuccess = { response ->
                     rawResponse = response
-                    Log.d(TAG, "[PROCESS] Success - received response")
                     try {
-                        // Try to extract JSON from the response
                         val start = response.indexOf('{')
                         val end = response.lastIndexOf('}')
                         val jsonString = if (start != -1 && end != -1 && end > start) {
@@ -190,15 +178,12 @@ fun CheckScreen(
                             response
                         }
                         checkResult = json.decodeFromString<CheckResult>(jsonString)
-                        Log.d(TAG, "[PROCESS] Parsed check result: ${checkResult?.steps?.size} steps, final_answer_correct=${checkResult?.final_answer_correct}")
                     } catch (e: Exception) {
-                        Log.e(TAG, "[PROCESS] Failed to parse JSON: ${e.message}")
                         errorMessage = "Failed to parse response: ${e.message}\n\nRaw response:\n$response"
                     }
                     isLoading = false
                 },
                 onFailure = { error ->
-                    Log.e(TAG, "[PROCESS] Failed: ${error.message}")
                     errorMessage = error.message ?: "Unknown error occurred"
                     isLoading = false
                 }

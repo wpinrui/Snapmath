@@ -8,7 +8,6 @@ import android.graphics.Rect
 import android.graphics.YuvImage
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -45,7 +44,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 
-private const val TAG = "Snapmath.Camera"
 private const val CAPTURE_BUTTON_SIZE_DP = 80
 private const val CAPTURE_BUTTON_INNER_SIZE_DP = 64
 private const val CAPTURE_BUTTON_BORDER_WIDTH_DP = 4
@@ -75,9 +73,7 @@ fun CameraCapture(
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
 
     DisposableEffect(Unit) {
-        Log.d(TAG, "[CAMERA] Camera composable mounted")
         onDispose {
-            Log.d(TAG, "[CAMERA] Camera composable disposed, shutting down executor")
             cameraExecutor.shutdown()
         }
     }
@@ -85,7 +81,6 @@ fun CameraCapture(
     Box(modifier = modifier.fillMaxSize()) {
         AndroidView(
             factory = { ctx ->
-                Log.d(TAG, "[CAMERA] Creating PreviewView")
                 val previewView = PreviewView(ctx).apply {
                     scaleType = PreviewView.ScaleType.FILL_CENTER
                 }
@@ -93,7 +88,6 @@ fun CameraCapture(
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                 cameraProviderFuture.addListener({
                     val cameraProvider = cameraProviderFuture.get()
-                    Log.d(TAG, "[CAMERA] Camera provider obtained")
 
                     val preview = Preview.Builder().build().also {
                         it.setSurfaceProvider(previewView.surfaceProvider)
@@ -109,9 +103,7 @@ fun CameraCapture(
                             preview,
                             imageCapture
                         )
-                        Log.d(TAG, "[CAMERA] Camera bound to lifecycle successfully")
                     } catch (e: Exception) {
-                        Log.e(TAG, "[CAMERA] Failed to bind camera: ${e.message}", e)
                         onError(e)
                     }
                 }, ContextCompat.getMainExecutor(ctx))
@@ -138,32 +130,19 @@ fun CameraCapture(
                     indication = null,
                     enabled = !isCapturing
                 ) {
-                    Log.d(TAG, "[CAPTURE] Capture button pressed")
                     isCapturing = true
-                    val captureStartTime = System.currentTimeMillis()
 
                     imageCapture.takePicture(
                         cameraExecutor,
                         object : ImageCapture.OnImageCapturedCallback() {
                             override fun onCaptureSuccess(image: ImageProxy) {
-                                val captureTime = System.currentTimeMillis() - captureStartTime
-                                Log.d(TAG, "[CAPTURE] Image captured in ${captureTime}ms")
-                                Log.d(TAG, "[CAPTURE] Image format: ${image.format}, size: ${image.width}x${image.height}")
-
                                 try {
-                                    val convertStartTime = System.currentTimeMillis()
                                     val bitmap = imageProxyToBitmap(image)
-                                    val convertTime = System.currentTimeMillis() - convertStartTime
-                                    Log.d(TAG, "[CAPTURE] Image converted to bitmap in ${convertTime}ms, size: ${bitmap.width}x${bitmap.height}")
-
-                                    // Post to main thread
                                     mainHandler.post {
                                         isCapturing = false
-                                        Log.d(TAG, "[CAPTURE] Passing bitmap to callback")
                                         onImageCaptured(bitmap)
                                     }
                                 } catch (e: Exception) {
-                                    Log.e(TAG, "[CAPTURE] Failed to convert image: ${e.message}", e)
                                     mainHandler.post {
                                         isCapturing = false
                                         onError(e)
@@ -174,7 +153,6 @@ fun CameraCapture(
                             }
 
                             override fun onError(exception: ImageCaptureException) {
-                                Log.e(TAG, "[CAPTURE] Capture failed: ${exception.message}", exception)
                                 mainHandler.post {
                                     isCapturing = false
                                     onError(exception)

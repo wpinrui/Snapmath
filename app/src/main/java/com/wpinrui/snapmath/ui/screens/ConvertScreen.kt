@@ -5,7 +5,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -55,8 +54,6 @@ import com.wpinrui.snapmath.data.preferences.ApiKeyManager
 import com.wpinrui.snapmath.ui.components.CameraCapture
 import kotlinx.coroutines.launch
 
-private const val TAG = "Snapmath.Convert"
-
 private const val CONVERT_PROMPT = """Recognize the handwritten math in this image and convert it to LaTeX format.
 Return ONLY the LaTeX code, no explanations or surrounding text.
 If there are multiple expressions, separate them with newlines."""
@@ -80,7 +77,6 @@ fun ConvertScreen(
 
     // Prevent back navigation while loading
     BackHandler(enabled = isLoading) {
-        Log.d(TAG, "[UI] Back pressed while loading - showing warning")
         showExitWarning = true
     }
 
@@ -88,11 +84,9 @@ fun ConvertScreen(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         hasCameraPermission = isGranted
-        Log.d(TAG, "[UI] Camera permission granted: $isGranted")
     }
 
     LaunchedEffect(Unit) {
-        Log.d(TAG, "[UI] ConvertScreen mounted")
         permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
@@ -104,7 +98,6 @@ fun ConvertScreen(
             text = { Text("The image is still being processed. Are you sure you want to leave?") },
             confirmButton = {
                 TextButton(onClick = {
-                    Log.d(TAG, "[UI] User confirmed exit during loading")
                     showExitWarning = false
                     onNavigateBack()
                 }) {
@@ -120,10 +113,8 @@ fun ConvertScreen(
     }
 
     fun processImage(bitmap: Bitmap) {
-        Log.d(TAG, "[PROCESS] Starting image processing")
         val apiKey = apiKeyManager.getApiKey()
         if (apiKey.isBlank()) {
-            Log.e(TAG, "[PROCESS] No API key configured")
             showCamera = false
             errorMessage = "No API key configured. Please add your OpenAI API key in Settings."
             return
@@ -133,19 +124,16 @@ fun ConvertScreen(
             isLoading = true
             showCamera = false
             errorMessage = null
-            Log.d(TAG, "[PROCESS] Calling OpenAI service...")
 
             val service = OpenAiService(apiKey)
             val result = service.analyzeImage(bitmap, CONVERT_PROMPT)
 
             result.fold(
                 onSuccess = { latex ->
-                    Log.d(TAG, "[PROCESS] Success - received LaTeX result")
                     latexResult = latex
                     isLoading = false
                 },
                 onFailure = { error ->
-                    Log.e(TAG, "[PROCESS] Failed: ${error.message}")
                     errorMessage = error.message ?: "Unknown error occurred"
                     isLoading = false
                 }
@@ -158,7 +146,6 @@ fun ConvertScreen(
         val clip = ClipData.newPlainText("LaTeX", text)
         clipboard.setPrimaryClip(clip)
         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-        Log.d(TAG, "[UI] Copied to clipboard")
     }
 
     fun handleBackNavigation() {

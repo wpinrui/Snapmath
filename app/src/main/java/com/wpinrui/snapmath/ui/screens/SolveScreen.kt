@@ -5,7 +5,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -59,8 +58,6 @@ import com.wpinrui.snapmath.ui.components.MathText
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
-private const val TAG = "Snapmath.Solve"
-
 private const val SOLVE_PROMPT = "Look at this handwritten math problem. Solve it step-by-step.\n" +
     "Format your response as:\n" +
     "PROBLEM: [the recognized problem in LaTeX, e.g. \$x^2 + 2x = 0\$]\n\n" +
@@ -100,7 +97,6 @@ fun SolveScreen(
 
     // Prevent back navigation while loading
     BackHandler(enabled = isLoading || isStreaming) {
-        Log.d(TAG, "[UI] Back pressed while loading - showing warning")
         showExitWarning = true
     }
 
@@ -108,11 +104,9 @@ fun SolveScreen(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         hasCameraPermission = isGranted
-        Log.d(TAG, "[UI] Camera permission granted: $isGranted")
     }
 
     LaunchedEffect(Unit) {
-        Log.d(TAG, "[UI] SolveScreen mounted")
         permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
@@ -124,7 +118,6 @@ fun SolveScreen(
             text = { Text("The image is still being processed. Are you sure you want to leave?") },
             confirmButton = {
                 TextButton(onClick = {
-                    Log.d(TAG, "[UI] User confirmed exit during loading")
                     showExitWarning = false
                     onNavigateBack()
                 }) {
@@ -140,10 +133,8 @@ fun SolveScreen(
     }
 
     fun processImage(bitmap: Bitmap) {
-        Log.d(TAG, "[PROCESS] Starting image processing")
         val apiKey = apiKeyManager.getApiKey()
         if (apiKey.isBlank()) {
-            Log.e(TAG, "[PROCESS] No API key configured")
             showCamera = false
             errorMessage = "No API key configured. Please add your OpenAI API key in Settings."
             return
@@ -155,23 +146,20 @@ fun SolveScreen(
             showCamera = false
             errorMessage = null
             solutionResult = ""
-            Log.d(TAG, "[PROCESS] Calling OpenAI service (streaming)...")
 
             val service = OpenAiService(apiKey)
             service.analyzeImageStreaming(bitmap, SOLVE_PROMPT)
                 .catch { error ->
-                    Log.e(TAG, "[PROCESS] Failed: ${error.message}")
                     errorMessage = error.message ?: "Unknown error occurred"
                     isLoading = false
                     isStreaming = false
                 }
                 .collect { chunk ->
                     solutionResult += chunk
-                    isLoading = false // Hide loading spinner once content starts
+                    isLoading = false
                 }
 
             isStreaming = false
-            Log.d(TAG, "[PROCESS] Streaming complete")
         }
     }
 
@@ -180,7 +168,6 @@ fun SolveScreen(
         val clip = ClipData.newPlainText("Solution", text)
         clipboard.setPrimaryClip(clip)
         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-        Log.d(TAG, "[UI] Copied to clipboard")
     }
 
     fun handleBackNavigation() {
