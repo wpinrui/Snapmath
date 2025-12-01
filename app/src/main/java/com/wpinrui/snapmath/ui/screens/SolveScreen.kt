@@ -21,8 +21,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
@@ -86,32 +89,6 @@ fun SolveScreen(
     var showExitWarning by remember { mutableStateOf(false) }
 
     val apiKeyManager = remember { ApiKeyManager(context) }
-    val scrollState = rememberScrollState()
-    var userHasScrolled by remember { mutableStateOf(false) }
-
-    // Track if user has manually scrolled up
-    LaunchedEffect(scrollState.isScrollInProgress) {
-        if (scrollState.isScrollInProgress && isStreaming) {
-            // User is scrolling while streaming - they want to read earlier content
-            if (scrollState.value < scrollState.maxValue - 100) {
-                userHasScrolled = true
-            }
-        }
-    }
-
-    // Reset scroll tracking when starting new stream
-    LaunchedEffect(isStreaming) {
-        if (isStreaming) {
-            userHasScrolled = false
-        }
-    }
-
-    // Auto-scroll to bottom only if user hasn't scrolled up
-    LaunchedEffect(solutionResult) {
-        if (isStreaming && !userHasScrolled) {
-            scrollState.animateScrollTo(scrollState.maxValue)
-        }
-    }
 
     // Prevent back navigation while loading
     BackHandler(enabled = isLoading || isStreaming) {
@@ -279,7 +256,6 @@ fun SolveScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(16.dp)
-                            .verticalScroll(scrollState)
                     ) {
                         if (errorMessage != null) {
                             Card(
@@ -301,53 +277,36 @@ fun SolveScreen(
                                     )
                                 }
                             }
+                            Spacer(modifier = Modifier.height(8.dp))
                         }
 
                         if (solutionResult.isNotEmpty()) {
-                            // Parse and display formatted solution
+                            // Parse and display formatted solution with step navigation
                             FormattedSolution(
                                 solution = solutionResult,
                                 isStreaming = isStreaming,
-                                onCopy = { copyToClipboard(solutionResult) }
+                                onCopy = { copyToClipboard(solutionResult) },
+                                modifier = Modifier.weight(1f)
                             )
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
 
                         if (!isStreaming) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            OutlinedButton(
+                                onClick = {
+                                    showCamera = true
+                                    solutionResult = ""
+                                    errorMessage = null
+                                },
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                OutlinedButton(
-                                    onClick = {
-                                        showCamera = true
-                                        solutionResult = ""
-                                        errorMessage = null
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Refresh,
-                                        contentDescription = null
-                                    )
-                                    Spacer(modifier = Modifier.padding(4.dp))
-                                    Text("New Problem")
-                                }
-
-                                if (solutionResult.isNotEmpty()) {
-                                    Button(
-                                        onClick = { copyToClipboard(solutionResult) },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.ContentCopy,
-                                            contentDescription = null
-                                        )
-                                        Spacer(modifier = Modifier.padding(4.dp))
-                                        Text("Copy")
-                                    }
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null
+                                )
+                                Spacer(modifier = Modifier.padding(4.dp))
+                                Text("Solve Another Problem")
                             }
                         }
                     }
@@ -361,113 +320,214 @@ fun SolveScreen(
 private fun FormattedSolution(
     solution: String,
     isStreaming: Boolean,
-    onCopy: () -> Unit
+    onCopy: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Solution",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (isStreaming) {
-                        Spacer(modifier = Modifier.padding(8.dp))
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp
-                        )
-                    }
-                }
-                IconButton(onClick = onCopy) {
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "Copy"
-                    )
-                }
-            }
+    val scope = rememberCoroutineScope()
+    val sections = remember(solution) { parseSolution(solution) }
 
-            Spacer(modifier = Modifier.height(12.dp))
+    // Create pages: Problem (if exists), each Step, Answer (if exists)
+    val pages = remember(sections) {
+        buildList {
+            sections.filterIsInstance<SolutionSection.Problem>().firstOrNull()?.let { add(it) }
+            addAll(sections.filterIsInstance<SolutionSection.Step>())
+            sections.filterIsInstance<SolutionSection.Answer>().firstOrNull()?.let { add(it) }
+        }
+    }
 
-            // Parse sections from the solution
-            val sections = parseSolution(solution)
+    val pagerState = rememberPagerState(pageCount = { pages.size.coerceAtLeast(1) })
 
-            sections.forEach { section ->
-                when (section) {
-                    is SolutionSection.Problem -> {
+    // Auto-advance to new pages when streaming
+    LaunchedEffect(pages.size) {
+        if (isStreaming && pages.isNotEmpty()) {
+            pagerState.animateScrollToPage(pages.size - 1)
+        }
+    }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        // Header with title, progress, and copy button
+        Card(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "Problem",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold
+                            text = "Solution",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        ) {
-                            MathText(
-                                text = section.content,
-                                style = MaterialTheme.typography.bodyLarge,
-                                textColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(12.dp)
+                        if (isStreaming) {
+                            Spacer(modifier = Modifier.padding(8.dp))
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
                             )
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
                     }
-                    is SolutionSection.Step -> {
-                        Text(
-                            text = "Step ${section.number}",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.secondary,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        MathText(
-                            text = section.content,
-                            style = MaterialTheme.typography.bodyMedium,
-                            textColor = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                    }
-                    is SolutionSection.Answer -> {
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (pages.size > 1) {
+                            Text(
+                                text = "${pagerState.currentPage + 1} / ${pages.size}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
+                            Spacer(modifier = Modifier.padding(4.dp))
+                        }
+                        IconButton(onClick = onCopy) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy"
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Pager content
+        if (pages.isNotEmpty()) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) { pageIndex ->
+                val page = pages[pageIndex]
+                Card(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 4.dp),
+                    colors = when (page) {
+                        is SolutionSection.Answer -> CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                        is SolutionSection.Problem -> CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        else -> CardDefaults.cardColors()
+                    }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        when (page) {
+                            is SolutionSection.Problem -> {
+                                Text(
+                                    text = "Problem",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                MathText(
+                                    text = page.content,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    textColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            is SolutionSection.Step -> {
+                                Text(
+                                    text = "Step ${page.number}",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                MathText(
+                                    text = page.content,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    textColor = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            is SolutionSection.Answer -> {
                                 Text(
                                     text = "Answer",
-                                    style = MaterialTheme.typography.labelLarge,
+                                    style = MaterialTheme.typography.titleLarge,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.Bold
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(16.dp))
                                 MathText(
-                                    text = section.content,
-                                    style = MaterialTheme.typography.titleMedium,
+                                    text = page.content,
+                                    style = MaterialTheme.typography.headlineSmall,
                                     textColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            is SolutionSection.Text -> {
+                                MathText(
+                                    text = page.content,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    textColor = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                         }
                     }
-                    is SolutionSection.Text -> {
-                        MathText(
-                            text = section.content,
-                            style = MaterialTheme.typography.bodyMedium,
-                            textColor = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Navigation buttons
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                        }
+                    },
+                    enabled = pagerState.currentPage > 0
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = null
+                    )
+                    Spacer(modifier = Modifier.padding(4.dp))
+                    Text("Previous")
+                }
+
+                Button(
+                    onClick = {
+                        scope.launch {
+                            pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                        }
+                    },
+                    enabled = pagerState.currentPage < pages.size - 1
+                ) {
+                    Text("Next")
+                    Spacer(modifier = Modifier.padding(4.dp))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null
+                    )
+                }
+            }
+        } else {
+            // Fallback for empty pages (streaming just started)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
                 }
             }
         }
