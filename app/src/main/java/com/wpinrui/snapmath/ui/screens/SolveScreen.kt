@@ -9,36 +9,40 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,16 +64,24 @@ import kotlinx.coroutines.launch
 
 private const val SOLVE_PROMPT = "Look at this handwritten math problem. Solve it step-by-step.\n" +
     "Format your response as:\n" +
-    "PROBLEM: [the recognized problem in LaTeX, e.g. \$x^2 + 2x = 0\$]\n\n" +
+    "PROBLEM: [the COMPLETE question including instruction words]\n\n" +
     "SOLUTION:\n" +
-    "Step 1: [explanation with math in LaTeX using \$ delimiters]\n" +
-    "Step 2: [explanation with math in LaTeX using \$ delimiters]\n" +
+    "Step 1: [explanation]\n" +
+    "Step 2: [explanation]\n" +
     "...\n\n" +
-    "ANSWER: [final answer in LaTeX]\n\n" +
-    "Use LaTeX notation for all mathematical expressions, wrapped in \$ delimiters.\n" +
-    "Be clear and educational in your explanations."
+    "ANSWER: [final answer]\n\n" +
+    "FORMATTING RULES:\n" +
+    "- Write plain English explanations normally\n" +
+    "- Wrap ONLY math expressions in \$ delimiters (e.g. \$x^2 + 2x\$)\n" +
+    "- Put each major equation on its own line\n" +
+    "- Keep math expressions SHORT - break into multiple lines if needed\n" +
+    "- Example step:\n" +
+    "  Multiply both sides by 2:\n" +
+    "  \$2x = 6\$\n" +
+    "  \$x = 3\$\n" +
+    "- Include full question stem (e.g. 'Simplify \$x^2 + 2x\$')\n" +
+    "- Double-check ALL arithmetic calculations"
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SolveScreen(
     onNavigateBack: () -> Unit
@@ -86,32 +98,6 @@ fun SolveScreen(
     var showExitWarning by remember { mutableStateOf(false) }
 
     val apiKeyManager = remember { ApiKeyManager(context) }
-    val scrollState = rememberScrollState()
-    var userHasScrolled by remember { mutableStateOf(false) }
-
-    // Track if user has manually scrolled up
-    LaunchedEffect(scrollState.isScrollInProgress) {
-        if (scrollState.isScrollInProgress && isStreaming) {
-            // User is scrolling while streaming - they want to read earlier content
-            if (scrollState.value < scrollState.maxValue - 100) {
-                userHasScrolled = true
-            }
-        }
-    }
-
-    // Reset scroll tracking when starting new stream
-    LaunchedEffect(isStreaming) {
-        if (isStreaming) {
-            userHasScrolled = false
-        }
-    }
-
-    // Auto-scroll to bottom only if user hasn't scrolled up
-    LaunchedEffect(solutionResult) {
-        if (isStreaming && !userHasScrolled) {
-            scrollState.animateScrollTo(scrollState.maxValue)
-        }
-    }
 
     // Prevent back navigation while loading
     BackHandler(enabled = isLoading || isStreaming) {
@@ -188,169 +174,138 @@ fun SolveScreen(
         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
     }
 
-    fun handleBackNavigation() {
-        if (isLoading || isStreaming) {
-            showExitWarning = true
-        } else {
-            onNavigateBack()
-        }
-    }
+    val showResults = !showCamera && (solutionResult.isNotEmpty() || errorMessage != null || (isLoading && solutionResult.isEmpty()))
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Solve Problem") },
-                navigationIcon = {
-                    IconButton(
-                        onClick = { handleBackNavigation() },
-                        enabled = !(isLoading || isStreaming) || showExitWarning
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = if (isLoading || isStreaming) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                   else MaterialTheme.colorScheme.onSurface
-                        )
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Camera view layer
+        when {
+            !hasCameraPermission -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text("Camera permission is required")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
+                        Text("Grant Permission")
                     }
                 }
-            )
-        }
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            when {
-                !hasCameraPermission -> {
+            }
+
+            showResults -> {
+                // Results overlay - full screen, no swipe gestures
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.surface
+                ) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text("Camera permission is required")
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
-                            Text("Grant Permission")
-                        }
-                    }
-                }
-
-                showCamera -> {
-                    Column {
-                        Box(modifier = Modifier.weight(1f)) {
-                            CameraCapture(
-                                onImageCaptured = { bitmap ->
-                                    processImage(bitmap)
-                                },
-                                onError = { error ->
-                                    errorMessage = error.message
-                                }
-                            )
-                        }
-                        Text(
-                            text = "Point at a math problem",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp)
-                        )
-                    }
-                }
-
-                isLoading && solutionResult.isEmpty() -> {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        CircularProgressIndicator()
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Analyzing problem...")
-                    }
-                }
-
-                else -> {
-                    // Results view
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
+                            .windowInsetsPadding(WindowInsets.statusBars)
                             .padding(16.dp)
-                            .verticalScroll(scrollState)
                     ) {
-                        if (errorMessage != null) {
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.errorContainer
-                                )
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Text(
-                                        text = "Error",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = errorMessage!!,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
-                                    )
+                        when {
+                            isLoading && solutionResult.isEmpty() -> {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        CircularProgressIndicator()
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text("Analyzing problem...")
+                                    }
                                 }
                             }
-                        }
 
-                        if (solutionResult.isNotEmpty()) {
-                            // Parse and display formatted solution
-                            FormattedSolution(
-                                solution = solutionResult,
-                                isStreaming = isStreaming,
-                                onCopy = { copyToClipboard(solutionResult) }
-                            )
-                        }
+                            else -> {
+                                if (errorMessage != null) {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.errorContainer
+                                        )
+                                    ) {
+                                        Column(modifier = Modifier.padding(16.dp)) {
+                                            Text(
+                                                text = "Error",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = errorMessage!!,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                                if (solutionResult.isNotEmpty()) {
+                                    FormattedSolution(
+                                        solution = solutionResult,
+                                        isStreaming = isStreaming,
+                                        onCopy = { copyToClipboard(solutionResult) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
 
-                        if (!isStreaming) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                OutlinedButton(
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Button(
                                     onClick = {
                                         showCamera = true
                                         solutionResult = ""
                                         errorMessage = null
                                     },
-                                    modifier = Modifier.weight(1f)
+                                    enabled = !isStreaming,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary
+                                    )
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Refresh,
                                         contentDescription = null
                                     )
                                     Spacer(modifier = Modifier.padding(4.dp))
-                                    Text("New Problem")
-                                }
-
-                                if (solutionResult.isNotEmpty()) {
-                                    Button(
-                                        onClick = { copyToClipboard(solutionResult) },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.ContentCopy,
-                                            contentDescription = null
-                                        )
-                                        Spacer(modifier = Modifier.padding(4.dp))
-                                        Text("Copy")
-                                    }
+                                    Text("Solve Another Problem")
                                 }
                             }
                         }
                     }
+                }
+            }
+
+            else -> {
+                // Camera view
+                Column {
+                    Box(modifier = Modifier.weight(1f)) {
+                        CameraCapture(
+                            onImageCaptured = { bitmap ->
+                                processImage(bitmap)
+                            },
+                            onError = { error ->
+                                errorMessage = error.message
+                            }
+                        )
+                    }
+                    Text(
+                        text = "Point at a math problem",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(16.dp)
+                    )
                 }
             }
         }
@@ -361,112 +316,182 @@ fun SolveScreen(
 private fun FormattedSolution(
     solution: String,
     isStreaming: Boolean,
-    onCopy: () -> Unit
+    onCopy: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+    val sections = remember(solution) { parseSolution(solution) }
+
+    // Extract problem separately - it stays at the top
+    val problem = sections.filterIsInstance<SolutionSection.Problem>().firstOrNull()
+
+    // Steps and answer go in the pager
+    val stepPages = remember(sections) {
+        buildList {
+            addAll(sections.filterIsInstance<SolutionSection.Step>())
+            sections.filterIsInstance<SolutionSection.Answer>().firstOrNull()?.let { add(it) }
+        }
+    }
+
+    // Pager state - NO auto-advance, stays on step 1
+    val pagerState = rememberPagerState(pageCount = { stepPages.size.coerceAtLeast(1) })
+
+    Column(modifier = modifier.fillMaxSize()) {
+        // Problem card at the top (fixed, taller)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Solution",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (isStreaming) {
-                        Spacer(modifier = Modifier.padding(8.dp))
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Problem",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (isStreaming) {
+                            Spacer(modifier = Modifier.padding(8.dp))
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                        }
+                    }
+                    IconButton(onClick = onCopy) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy"
                         )
                     }
                 }
-                IconButton(onClick = onCopy) {
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "Copy"
+                Spacer(modifier = Modifier.height(8.dp))
+                if (problem != null) {
+                    MathText(
+                        text = problem.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        text = "Loading problem...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                 }
             }
+        }
 
-            Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-            // Parse sections from the solution
-            val sections = parseSolution(solution)
+        // Step indicator
+        if (stepPages.isNotEmpty()) {
+            Text(
+                text = "${pagerState.currentPage + 1} / ${stepPages.size}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
 
-            sections.forEach { section ->
-                when (section) {
-                    is SolutionSection.Problem -> {
-                        Text(
-                            text = "Problem",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold
+        // Steps pager at the bottom (swipeable)
+        if (stepPages.isNotEmpty()) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                pageSpacing = 8.dp
+            ) { pageIndex ->
+                val page = stepPages[pageIndex]
+                Card(
+                    modifier = Modifier.fillMaxSize(),
+                    colors = when (page) {
+                        is SolutionSection.Answer -> CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        ) {
-                            MathText(
-                                text = section.content,
-                                style = MaterialTheme.typography.bodyLarge,
-                                textColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
+                        else -> CardDefaults.cardColors()
                     }
-                    is SolutionSection.Step -> {
-                        Text(
-                            text = "Step ${section.number}",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.secondary,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        MathText(
-                            text = section.content,
-                            style = MaterialTheme.typography.bodyMedium,
-                            textColor = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                    }
-                    is SolutionSection.Answer -> {
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer
-                            )
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        when (page) {
+                            is SolutionSection.Step -> {
+                                Text(
+                                    text = "Step ${page.number}",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                MathText(
+                                    text = page.content,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textColor = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            is SolutionSection.Answer -> {
                                 Text(
                                     text = "Answer",
-                                    style = MaterialTheme.typography.labelLarge,
+                                    style = MaterialTheme.typography.titleLarge,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.Bold
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
                                 MathText(
-                                    text = section.content,
-                                    style = MaterialTheme.typography.titleMedium,
+                                    text = page.content,
+                                    style = MaterialTheme.typography.bodyLarge,
                                     textColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            else -> {
+                                MathText(
+                                    text = (page as? SolutionSection.Text)?.content ?: "",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textColor = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                         }
                     }
-                    is SolutionSection.Text -> {
-                        MathText(
-                            text = section.content,
-                            style = MaterialTheme.typography.bodyMedium,
-                            textColor = MaterialTheme.colorScheme.onSurface
-                        )
+                }
+            }
+        } else {
+            // Waiting for steps to load
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
                         Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Loading solution steps...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -481,22 +506,27 @@ private sealed class SolutionSection {
     data class Text(val content: String) : SolutionSection()
 }
 
+private enum class SectionType { PROBLEM, STEP, ANSWER, TEXT }
+
+private val STEP_PATTERN = Regex("^Step\\s*\\d+:.*", RegexOption.IGNORE_CASE)
+
 private fun parseSolution(solution: String): List<SolutionSection> {
     val sections = mutableListOf<SolutionSection>()
     val lines = solution.lines()
 
-    var currentSection: String? = null
+    var currentType: SectionType? = null
     val currentContent = StringBuilder()
     var stepNumber = 0
 
     fun flushSection() {
         val content = currentContent.toString().trim()
         if (content.isNotEmpty()) {
-            when {
-                currentSection == "problem" -> sections.add(SolutionSection.Problem(content))
-                currentSection == "step" -> sections.add(SolutionSection.Step(stepNumber, content))
-                currentSection == "answer" -> sections.add(SolutionSection.Answer(content))
-                currentSection == "text" -> sections.add(SolutionSection.Text(content))
+            when (currentType) {
+                SectionType.PROBLEM -> sections.add(SolutionSection.Problem(content))
+                SectionType.STEP -> sections.add(SolutionSection.Step(stepNumber, content))
+                SectionType.ANSWER -> sections.add(SolutionSection.Answer(content))
+                SectionType.TEXT -> sections.add(SolutionSection.Text(content))
+                null -> {}
             }
         }
         currentContent.clear()
@@ -507,27 +537,27 @@ private fun parseSolution(solution: String): List<SolutionSection> {
         when {
             trimmed.startsWith("PROBLEM:", ignoreCase = true) -> {
                 flushSection()
-                currentSection = "problem"
-                currentContent.append(trimmed.removePrefix("PROBLEM:").removePrefix("problem:").trim())
+                currentType = SectionType.PROBLEM
+                currentContent.append(trimmed.substringAfter(":").trim())
             }
             trimmed.startsWith("SOLUTION:", ignoreCase = true) -> {
                 flushSection()
-                currentSection = "text"
+                currentType = SectionType.TEXT
             }
-            trimmed.matches(Regex("^Step\\s*\\d+:.*", RegexOption.IGNORE_CASE)) -> {
+            trimmed.matches(STEP_PATTERN) -> {
                 flushSection()
-                currentSection = "step"
+                currentType = SectionType.STEP
                 stepNumber = trimmed.substringAfter("Step").substringBefore(":").trim().toIntOrNull() ?: (stepNumber + 1)
                 currentContent.append(trimmed.substringAfter(":").trim())
             }
             trimmed.startsWith("ANSWER:", ignoreCase = true) -> {
                 flushSection()
-                currentSection = "answer"
-                currentContent.append(trimmed.removePrefix("ANSWER:").removePrefix("answer:").trim())
+                currentType = SectionType.ANSWER
+                currentContent.append(trimmed.substringAfter(":").trim())
             }
             else -> {
-                if (currentSection == null && trimmed.isNotEmpty()) {
-                    currentSection = "text"
+                if (currentType == null && trimmed.isNotEmpty()) {
+                    currentType = SectionType.TEXT
                 }
                 if (currentContent.isNotEmpty()) {
                     currentContent.append("\n")
